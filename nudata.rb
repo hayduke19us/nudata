@@ -29,7 +29,7 @@ module Nudata
     def initialize(args)
       @cid = args.fetch(:cid, nil)
       @key = args.fetch(:key, nil)
-      @url = args.fetch(:url, 'https://widget.ean.com/analytics/behaviorCaptureWidget')
+      @url = args.fetch(:url, nil')
     end
 
     def run
