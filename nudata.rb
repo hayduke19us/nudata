@@ -3,16 +3,17 @@
 require 'rest-client'
 require 'optparse'
 
-# curl -v -X POST -H "Authorization:EAN CID=428281,APIKey=qmatfwd872ysmh33efh8yg9h" -H "Content-Type:application/json" https://widget.ean.com/analytics/behaviorCaptureWidget
-
 USAGE = "ruby ./nudata.rb [-cCID | -c=CID] [-kKEY | -key=KEY] [-uURL | -u=URL]".freeze
 
 module Nudata
-
   def self.error_msg(args)
     puts %{
 
     The cid and key are required!
+
+    cid   = CID
+    key   = APIKEY
+    count = The number of Nudata responses to compare
 
     Your arguments: #{args}
 
@@ -26,10 +27,9 @@ module Nudata
     attr_reader :cid, :key, :url
 
     def initialize(args)
-      @cid   = args.fetch(:cid, nil)
-      @key   = args.fetch(:key, nil)
-      @url   = args.fetch(:url, 'https://widget.ean.com/analytics/behaviorCaptureWidget')
-      @times = args.fetch(:times, 3)
+      @cid = args.fetch(:cid, nil)
+      @key = args.fetch(:key, nil)
+      @url = args.fetch(:url, 'https://widget.ean.com/analytics/behaviorCaptureWidget')
     end
 
     def run
@@ -44,26 +44,66 @@ module Nudata
     end
   end
 
-  class Compare
-    History = Struct.new(:points, :current, :last)
+  class Response
+    attr_reader :body, :headers, :cookies
 
     def initialize(response)
-      @body    = response.body
+      @body    = JSON.parse(response.body)
       @headers = response.headers
       @cookies = response.cookies
-      @code    = response.code
     end
+  end
 
-    def history
-      @history ||= History.new
+  class Compare
+    History = ::Struct.new(:points, :current, :last)
+
+    attr_reader :request, :count
+
+    def initialize(request, count)
+      @request = request
+      @count   = count ? count : 4
     end
 
     def show
+      run
+
+      puts history.points
+    end
+
+    def history
+      @history ||= History.new({ cookies: [], headers: [], body: [] })
+    end
+
+    private
+
+    def run
+      count.times do
+        response = Response.new(request.run)
+
+        history.current = response
+
+        if history.last
+          history.last = history.last
+        else
+          history.last = history.current
+        end
+
+        a_b!
+      end
+    end
+
+    def a_b!
+      points = history.points
+
+      points[:cookies] << (history.current.cookies.to_a - history.last.cookies.to_a).count
+      points[:headers] << (history.current.headers.to_a.flatten - history.last.headers.to_a.flatten).count
+
+      points[:body] << (history.current.body.to_a - history.last.body.to_a).count
     end
   end
 end
 
-Options = Struct.new(:cid, :key, :url, :asylum)
+Options = Struct.new(:cid, :key, :url, :asylum, :count)
 args = Options.new
 
 opt_parser = OptionParser.new do |opts|
@@ -81,15 +121,12 @@ opt_parser = OptionParser.new do |opts|
     args.url = url
   end
 
-  opts.on("-tTIMES", "-times=TIMES") do |times|
-    args.times = times
-  end
-
   opts.on("-asylum") do 
     puts "Welcome to the nudata asylum"
-    args.cid = '428281'
-    args.key = 'qmatfwd872ysmh33efh8yg9h'
-    args.asylum = true
+  end
+
+  opts.on("-nCOUNT", type='int') do |count|
+    args.count = count.to_i
   end
 end
 
@@ -118,7 +155,9 @@ end
 
 if args.cid && args.key || args.asylum
   nudata_request = Nudata::Request.new sanitize(args)
-  Compare.new(nudata_request.run).show
+
+  compare = Nudata::Compare.new nudata_request, args.count
+  compare.show
 else
   puts Nudata.error_msg sanitize(args, false)
 end
